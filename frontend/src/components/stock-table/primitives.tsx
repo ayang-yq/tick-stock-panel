@@ -95,6 +95,9 @@ export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | nu
       return <td key={col.id} className={numCls}>{r.annual_vol_20d != null ? fmtPct(r.annual_vol_20d) : '—'}</td>
     // 估值 (低分位绿=便宜, 高分位红=贵)
     case 'pe_ttm': return <td key={col.id} className={numCls}>{r.pe_ttm != null ? r.pe_ttm.toFixed(1) : '—'}</td>
+    case 'pe_forward': return <td key={col.id} className={numCls}
+      title={r.forward_period ? `前瞻PE: 按 ${r.forward_period} 业绩预告修正(年报+预告-上年同期)` : '无业绩预告数据'}>
+      {r.pe_forward != null ? r.pe_forward.toFixed(1) : '—'}</td>
     case 'pb':      return <td key={col.id} className={numCls}>{r.pb != null ? r.pb.toFixed(2) : '—'}</td>
     case 'pct_1y':
     case 'pct_3y':

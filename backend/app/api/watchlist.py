@@ -671,7 +671,8 @@ def watchlist_enriched(
         val_df = _load_valuation(request.app.state.repo.store.data_dir)
         if not val_df.is_empty():
             val_cols = ["symbol", "pe_ttm", "pb", "pct_1y", "pct_3y", "pct_5y",
-                        "pb_pct_1y", "pb_pct_3y", "pb_pct_5y", "eps_period"]
+                        "pb_pct_1y", "pb_pct_3y", "pb_pct_5y", "eps_period",
+                        "pe_forward", "forward_period"]
             df = df.join(val_df.select(val_cols), on="symbol", how="left")
     except Exception as e:  # noqa: BLE001
         logging.getLogger(__name__).warning("valuation join skipped: %s", e)
