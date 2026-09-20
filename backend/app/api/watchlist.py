@@ -665,6 +665,17 @@ def watchlist_enriched(
                         logger.debug("ext join fallback failed for %s.%s: %s", config_id, field_name, e2)
 
     # sanitize NaN / Inf
+    # 估值分位 join (toolbox valuation_calc.py 落盘的截面, 缺文件静默跳过)
+    try:
+        from app.api.valuation import _load as _load_valuation
+        val_df = _load_valuation(request.app.state.repo.store.data_dir)
+        if not val_df.is_empty():
+            val_cols = ["symbol", "pe_ttm", "pb", "pct_1y", "pct_3y", "pct_5y",
+                        "pb_pct_1y", "pb_pct_3y", "pb_pct_5y", "eps_period"]
+            df = df.join(val_df.select(val_cols), on="symbol", how="left")
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("valuation join skipped: %s", e)
+
     float_cols = [c for c in df.columns if df[c].dtype.is_float()]
     if float_cols:
         df = df.with_columns([
