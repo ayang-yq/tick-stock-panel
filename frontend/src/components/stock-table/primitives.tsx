@@ -93,6 +93,28 @@ export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | nu
       )
     case 'annual_vol':
       return <td key={col.id} className={numCls}>{r.annual_vol_20d != null ? fmtPct(r.annual_vol_20d) : '—'}</td>
+    // 估值 (低分位绿=便宜, 高分位红=贵)
+    case 'pe_ttm': return <td key={col.id} className={numCls}>{r.pe_ttm != null ? r.pe_ttm.toFixed(1) : '—'}</td>
+    case 'pb':      return <td key={col.id} className={numCls}>{r.pb != null ? r.pb.toFixed(2) : '—'}</td>
+    case 'pct_1y':
+    case 'pct_3y':
+    case 'pct_5y':
+    case 'pb_pct_1y':
+    case 'pb_pct_5y': {
+      const isPb = key.startsWith('pb_')
+      const win = key.endsWith('1y') ? '1y' : key.endsWith('3y') ? '3y' : '5y'
+      const peV = win === '1y' ? r.pct_1y : win === '3y' ? r.pct_3y : r.pct_5y
+      const pbV = win === '1y' ? r.pb_pct_1y : win === '3y' ? r.pb_pct_3y : r.pb_pct_5y
+      // PE 分位仅盈利股有; 亏损股自动回落 PB 分位
+      const v = isPb ? pbV : (peV != null ? peV : pbV)
+      const basis = isPb ? 'PB' : (peV != null ? 'PE' : 'PB')
+      if (v == null) return <td key={col.id} className={numCls}>—</td>
+      const cls = v <= 0.3 ? 'text-green-500' : v >= 0.7 ? 'text-red-400' : ''
+      return <td key={col.id} className={numCls}
+        title={`${basis} 分位: 当前${basis}在过去${win}的百分位(近似口径; PE缺失时回落PB)`}>{
+        <span className={cls}>{(v * 100).toFixed(1)}%</span>
+      }</td>
+    }
     // 均线
     case 'ma5':  return <td key={col.id} className={numCls}>{fmtMaybePrice(r.ma5)}</td>
     case 'ma10': return <td key={col.id} className={numCls}>{fmtMaybePrice(r.ma10)}</td>
