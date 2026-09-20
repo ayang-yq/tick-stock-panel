@@ -42,6 +42,7 @@ from app.api import (
     stock_analysis,
     strategy,
     task_registry,
+    valuation,
     watchlist,
 )
 from app.api import auth as auth_api
@@ -620,6 +621,7 @@ app.include_router(ext_data.router)
 app.include_router(ext_pages.router)
 app.include_router(task_registry.router)
 app.include_router(financials.router)
+app.include_router(valuation.router)
 app.include_router(stock_analysis.router)
 app.include_router(market_recap.router)
 app.include_router(settings_api.router)
