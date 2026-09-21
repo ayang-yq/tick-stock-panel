@@ -53,8 +53,23 @@ export function signalCls(type: SignalType): string {
 export const UNSORTABLE_KEYS = new Set(['signals', 'candle', 'intraday', 'strategies'])
 
 /**
+ * PE/PB 分位列的排序标量: 与单元格展示同口径 (亏损股 PE 分位缺失时回落 PB 分位),
+ * 无值返回 null 使其排最后。
+ */
+export function getPctSortValue(r: any, key: string): number | null {
+  const isPb = key.startsWith('pb_')
+  const peV = key.endsWith('1y') ? r.pct_1y : key.endsWith('3y') ? r.pct_3y : r.pct_5y
+  const pbV = key.endsWith('1y') ? r.pb_pct_1y : key.endsWith('3y') ? r.pb_pct_3y : r.pb_pct_5y
+  const v = isPb ? pbV : (peV != null ? peV : pbV)
+  return v ?? null
+}
+
+/**
  * 取一列在某行上的排序标量值。builtin 列按 key 映射到行字段；ext 列走
  * `${configId}__${fieldName}`；不可排序列返回 null。
+ *
+ * 新增内置列（估值/财务/日历等）在行上就是同名字段，走 default 的 key 透传 ——
+ * 只特化「行字段名与列 key 不同」或「需要与展示同口径换算」的列。
  */
 export function getSortValue(r: any, col: ColumnConfig): any {
   if (col.source.type === 'ext') {
@@ -114,7 +129,21 @@ export function getSortValue(r: any, col: ColumnConfig): any {
     case 'added_at':      return r.added_at ? cnDateTimeFromUtc(r.added_at) : null
     case 'pct_since_added': return r.pct_since_added
     case 'score':         return r.score
-    default: return null
+    case 'pct_1y':
+    case 'pct_3y':
+    case 'pct_5y':
+    case 'pb_pct_1y':
+    case 'pb_pct_3y':
+    case 'pb_pct_5y':     return getPctSortValue(r, key)
+    // 财报日历列展示摘要日期串, 排序用同一日期 (YYYY-MM-DD 字典序即时间序)
+    case 'next_report':   return r.next_report_date ?? null
+    default: {
+      // 其余内置列在行上就是同名字段 (估值 pe_forward/pb、财务 roe/eps、动量别名等);
+      // 只透传标量, 避免把对象/数组当排序值。
+      const v = r[key]
+      const t = typeof v
+      return t === 'number' || t === 'string' || t === 'boolean' ? v : null
+    }
   }
 }
 
