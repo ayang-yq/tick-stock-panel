@@ -50,6 +50,7 @@ export const BUILTIN_COLUMNS: ColumnConfig[] = [
   { id: 'builtin:pct_3y', source: { type: 'builtin', key: 'pct_3y' }, label: '估值分位3y', visible: false, align: 'center' },
   { id: 'builtin:pct_5y', source: { type: 'builtin', key: 'pct_5y' }, label: '估值分位5y', visible: true, align: 'center' },
   { id: 'builtin:pe_forward', source: { type: 'builtin', key: 'pe_forward' }, label: '前瞻PE', visible: true, align: 'center' },
+  { id: 'builtin:next_report', source: { type: 'builtin', key: 'next_report' }, label: '下份财报', visible: true, align: 'center' },
   { id: 'builtin:pb_pct_1y', source: { type: 'builtin', key: 'pb_pct_1y' }, label: 'PB分位1y', visible: false, align: 'center' },
   { id: 'builtin:pb_pct_5y', source: { type: 'builtin', key: 'pb_pct_5y' }, label: 'PB分位5y', visible: false, align: 'center' },
   // 均线
@@ -109,6 +110,7 @@ export const COLUMN_GROUPS: ColumnGroup[] = [
   { id: 'added', label: '自选', icon: '⭐', keys: ['added_at', 'pct_since_added'] },
   { id: 'volume', label: '成交', icon: '📊', keys: ['turnover', 'volume', 'amount', 'float_val', 'vol_ratio', 'annual_vol'] },
   { id: 'valuation', label: '估值', icon: '💰', keys: ['pe_ttm', 'pe_forward', 'pb', 'pct_1y', 'pct_3y', 'pct_5y', 'pb_pct_1y', 'pb_pct_5y'] },
+  { id: 'calendar', label: '财报', icon: '📅', keys: ['next_report'] },
   { id: 'ma', label: '均线', icon: '📈', keys: ['ma5', 'ma10', 'ma20', 'ma60'] },
   { id: 'range', label: '区间', icon: '📏', keys: ['high_60d', 'low_60d'] },
   { id: 'tech', label: '技术指标', icon: '🔬', keys: ['rsi6', 'rsi14', 'rsi24', 'macd_dif', 'macd_dea', 'macd_hist', 'kdj_k', 'kdj_d', 'kdj_j', 'boll_upper', 'boll_lower', 'atr14', 'vol_ma5', 'vol_ma10'] },

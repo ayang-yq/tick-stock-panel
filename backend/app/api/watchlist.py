@@ -665,6 +665,49 @@ def watchlist_enriched(
                         logger.debug("ext join fallback failed for %s.%s: %s", config_id, field_name, e2)
 
     # sanitize NaN / Inf
+    # 财报日历 join (未来最近预约披露日, 缺文件静默跳过)
+    try:
+        from app.api.calendar import _load as _load_cal
+        cal = _load_cal(request.app.state.repo.store.data_dir)
+        if not cal.is_empty():
+            import datetime as _dt
+            _today = _dt.date.today().isoformat()
+            nxt = (
+                cal.filter(
+                    pl.col("appoint_date").is_not_null()
+                    & (pl.col("appoint_date") >= _today)
+                )
+                .sort("appoint_date")
+                .group_by("symbol")
+                .agg([
+                    pl.col("appoint_date").first().alias("next_report_date"),
+                    pl.col("report_period").first().alias("next_report_period"),
+                    pl.col("forecast_np").first().alias("forecast_np"),
+                    pl.col("forecast_yoy_pct").first().alias("forecast_yoy_pct"),
+                    pl.col("forecast_type").first().alias("forecast_type"),
+                ])
+            )
+            # 无未来预约时回落: 最近一期预告信息(日期空, 预告仍展示)
+            latest_fc = (
+                cal.filter(pl.col("forecast_np").is_not_null())
+                .sort("report_period")
+                .group_by("symbol")
+                .agg([
+                    pl.col("forecast_np").last().alias("_fc_np"),
+                    pl.col("forecast_yoy_pct").last().alias("_fc_yoy"),
+                    pl.col("forecast_type").last().alias("_fc_type"),
+                ])
+            )
+            nxt = nxt.join(latest_fc, on="symbol", how="full", coalesce=True)
+            nxt = nxt.with_columns(
+                pl.col("forecast_np").fill_null(pl.col("_fc_np")).alias("forecast_np"),
+                pl.col("forecast_yoy_pct").fill_null(pl.col("_fc_yoy")).alias("forecast_yoy_pct"),
+                pl.col("forecast_type").fill_null(pl.col("_fc_type")).alias("forecast_type"),
+            ).drop(["_fc_np", "_fc_yoy", "_fc_type"])
+            df = df.join(nxt, on="symbol", how="left")
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("calendar join skipped: %s", e)
+
     # 估值分位 join (toolbox valuation_calc.py 落盘的截面, 缺文件静默跳过)
     try:
         from app.api.valuation import _load as _load_valuation

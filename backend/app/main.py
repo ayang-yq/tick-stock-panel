@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from app import __version__
 from app.api import (
     abnormal,
+    calendar,
     alerts,
     analysis,
     backtest,
@@ -487,6 +488,7 @@ app.include_router(data.router)
 app.include_router(ext_data.router)
 app.include_router(financials.router)
 app.include_router(valuation.router)
+app.include_router(calendar.router)
 app.include_router(stock_analysis.router)
 app.include_router(market_recap.router)
 app.include_router(settings_api.router)
