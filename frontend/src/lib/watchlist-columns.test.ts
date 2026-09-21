@@ -94,6 +94,8 @@ describe('watchlist columns: 列 key 不变量 (防止静默失效列)', () => {
       consecutive_limit_ups: 0, consecutive_limit_downs: 0, added_at: '2026-10-01T00:00:00Z',
       pct_since_added: 0.02, score: 1, eps: 1, bps: 1, roe: 0.1, pe_ttm: 10, pb: 1,
       gross_margin: 0.3, net_margin: 0.2, revenue_yoy: 0.1, net_income_yoy: 0.1, debt_ratio: 0.4,
+      pct_1y: 0.5, pct_3y: 0.5, pct_5y: 0.5, pb_pct_1y: 0.5, pb_pct_3y: 0.5, pb_pct_5y: 0.5,
+      pe_forward: 9, next_report_date: '2026-12-31',
     }
     for (const col of BUILTIN_COLUMNS) {
       if (col.source.type !== 'builtin') continue
