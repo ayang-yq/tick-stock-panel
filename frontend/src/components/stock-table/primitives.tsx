@@ -95,6 +95,19 @@ export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | nu
       return <td key={col.id} className={numCls}>{r.annual_vol_20d != null ? fmtPct(r.annual_vol_20d) : '—'}</td>
     // 估值 (低分位绿=便宜, 高分位红=贵)
     case 'pe_ttm': return <td key={col.id} className={numCls}>{r.pe_ttm != null ? r.pe_ttm.toFixed(1) : '—'}</td>
+    case 'next_report': {
+      const d = r.next_report_date
+      const tipParts: string[] = []
+      if (r.next_report_period) tipParts.push(`报告期 ${r.next_report_period}`)
+      if (r.forecast_np != null) tipParts.push(`预告归母 ${(r.forecast_np / 1e8).toFixed(2)} 亿`)
+      if (r.forecast_yoy_pct != null) tipParts.push(`同比 ${r.forecast_yoy_pct > 0 ? '+' : ''}${r.forecast_yoy_pct.toFixed(1)}% (${r.forecast_type ?? ''})`)
+      const yoy = r.forecast_yoy_pct
+      const cls = yoy == null ? '' : yoy > 0 ? 'text-red-400' : 'text-green-500'
+      const label = d ? d.slice(5) : (r.forecast_type ?? '—')
+      return <td key={col.id} className={numCls} title={tipParts.join(' · ') || '财报日历'}>
+        <span className={cls}>{label}</span>
+      </td>
+    }
     case 'pe_forward': return <td key={col.id} className={numCls}
       title={r.forward_period ? `前瞻PE: 按 ${r.forward_period} 业绩预告修正(年报+预告-上年同期)` : '无业绩预告数据'}>
       {r.pe_forward != null ? r.pe_forward.toFixed(1) : '—'}</td>
