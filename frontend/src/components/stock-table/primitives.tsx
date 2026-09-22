@@ -124,11 +124,12 @@ export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | nu
       // PE 分位仅盈利股有; 亏损股自动回落 PB 分位
       const v = isPb ? pbV : (peV != null ? peV : pbV)
       const basis = isPb ? 'PB' : (peV != null ? 'PE' : 'PB')
+      const fellBack = !isPb && peV == null && pbV != null
       if (v == null) return <td key={col.id} className={numCls}>—</td>
       const cls = v <= 0.3 ? 'text-green-500' : v >= 0.7 ? 'text-red-400' : ''
       return <td key={col.id} className={numCls}
-        title={`${basis} 分位: 当前${basis}在过去${win}的百分位(近似口径; PE缺失时回落PB)`}>{
-        <span className={cls}>{(v * 100).toFixed(1)}%</span>
+        title={`${basis} 分位: 当前${basis}在过去${win}的百分位(point-in-time 历史公告口径)${fellBack ? '; 亏损股无PE, 已回落PB' : ''}`}>{
+        <span className={cls}>{(v * 100).toFixed(1)}%{fellBack ? <sup className="ml-0.5 text-[10px] text-zinc-500">PB</sup> : null}</span>
       }</td>
     }
     // 均线
