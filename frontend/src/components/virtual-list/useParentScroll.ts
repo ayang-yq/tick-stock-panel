@@ -3,7 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } fro
 export const VIRTUAL_LIST_THRESHOLD = 100
 
 function findVerticalScrollParent(element: HTMLElement | null): HTMLElement | null {
-  let current = element?.parentElement ?? null
+  // 先查元素自身: 表格包装 div 可能自己就是滚动容器(双向 sticky 要求滚动器与表格同容器)
+  let current: HTMLElement | null = element
   while (current) {
     const overflowY = window.getComputedStyle(current).overflowY
     if (/(auto|scroll|overlay)/.test(overflowY) && current.scrollHeight > current.clientHeight) {
