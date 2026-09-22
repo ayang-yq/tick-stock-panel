@@ -25,6 +25,8 @@ export interface StockDataTableProps {
   rowClassName?: (r: any) => string
   /** 表头是否 sticky（自选页需要，策略页不需要） */
   headerSticky?: boolean
+  /** 第一列(代码/名称)横向滚动时固定; 需配合 headerSticky 使用(角头也固定) */
+  stickyFirstColumn?: boolean
   /** 最小表格宽度，默认按列数计算 */
   minWidth?: number
   /** 排序：外部受控时传入（含当前 sort 与 toggle）；不传则表头不可排序 */
@@ -54,6 +56,7 @@ export function StockDataTable({
   rowKey = (r: any) => r.symbol,
   rowClassName = () => 'border-t border-border hover:bg-elevated/50',
   headerSticky = false,
+  stickyFirstColumn = false,
   minWidth,
   sort,
   onSortToggle,
@@ -93,23 +96,42 @@ export function StockDataTable({
     return true
   }
 
-  const theadClass = headerSticky
+  // sticky 生效前提与位置(两个坑):
+  // 1. border-separate — Chromium 在 border-collapse:collapse 下表格元素 sticky 失效 (Regime.tsx 同款坑)
+  // 2. sticky 必须写在 th 上 — Chromium 对 thead 元素本身的 position:sticky 不支持(实测 thead 粘性无效)
+  // 第一列 td 用 bg-inherit 继承 tr 背景: 选中高亮(rowClassName 的 bg-accent/10)与 hover 自动跟随,
+  // tr 兜底 bg-surface 保证横向滚动时固定列不透出下层单元格。
+  // z 层级: 表体固定列 5 < 表头 10 < 角头 30。
+  const tableCls = stickyFirstColumn ? 'w-full text-sm border-separate border-spacing-0' : 'w-full text-sm'
+  const theadClass = headerSticky ? 'bg-surface' : 'bg-elevated'
+  const headerStickyTh = headerSticky
     ? 'sticky top-0 z-10 bg-surface after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border'
-    : 'bg-elevated'
+    : ''
+  const stickyColTh = stickyFirstColumn && headerSticky
+    ? 'sticky left-0 top-0 z-30 bg-surface before:absolute before:inset-x-0 before:bottom-0 before:h-px before:bg-border after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border'
+    : stickyFirstColumn
+      ? 'sticky left-0 z-20 bg-surface after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border'
+      : ''
+  const stickyColTd = stickyFirstColumn
+    ? 'sticky left-0 z-[5] bg-inherit after:absolute after:top-0 after:right-0 after:bottom-0 after:w-px after:bg-border'
+    : ''
 
   const renderRow = (r: any, virtualRow?: VirtualItem) => (
     <tr
       key={rowKey(r)}
       ref={virtualRow ? rowVirtualizer.measureElement : undefined}
       data-index={virtualRow?.index}
-      className={`transition-colors duration-150 ease-smooth group ${rowClassName(r)}`}
+      className={`transition-colors duration-150 ease-smooth group ${stickyFirstColumn ? 'bg-surface [&>td]:border-b [&>td]:border-border' : ''} ${rowClassName(r)}`}
     >
-      {visibleColumns.map(col => {
+      {visibleColumns.map((col, ci) => {
         // renderCell 返回的 <td> 无 key, 这里补上避免 React key 警告
         const cell = renderCell(r, col)
-        return isValidElement(cell)
-          ? cloneElement(cell as ReactElement, { key: col.id })
+        const patched = isValidElement(cell) && stickyFirstColumn && ci === 0
+          ? cloneElement(cell as ReactElement, { className: `${(cell.props as any).className ?? ''} ${stickyColTd}` })
           : cell
+        return isValidElement(patched)
+          ? cloneElement(patched as ReactElement, { key: col.id })
+          : patched
       })}
       {renderExtraCol && renderExtraCol(r)}
     </tr>
@@ -117,10 +139,10 @@ export function StockDataTable({
 
   return (
     <div ref={containerRef} className={className}>
-      <table className="w-full text-sm" style={{ minWidth: computedMinWidth }}>
+      <table className={tableCls} style={{ minWidth: computedMinWidth }}>
         <thead className={theadClass}>
           <tr className="text-left text-secondary">
-            {visibleColumns.map(col => {
+            {visibleColumns.map((col, hi) => {
               const sortable = isColSortable(col)
               const isSorted = sort?.key === col.id
               const dir = isSorted ? sort!.dir : null
@@ -128,7 +150,7 @@ export function StockDataTable({
               return (
                 <th
                   key={col.id}
-                  className={`${alignThClass(col.align)} ${sortable ? 'cursor-pointer select-none group' : ''}`}
+                  className={`${alignThClass(col.align)} ${sortable ? 'cursor-pointer select-none group' : ''} ${headerStickyTh} ${stickyFirstColumn && hi === 0 ? stickyColTh : ''}`}
                   onClick={sortable ? () => onSortToggle!(col.id) : undefined}
                 >
                   {contentOverride !== undefined ? contentOverride : col.label}
@@ -141,7 +163,7 @@ export function StockDataTable({
               )
             })}
             {extraHeader && (
-              <th className="px-3 py-2.5 font-medium text-right">{extraHeader}</th>
+              <th className={`px-3 py-2.5 font-medium text-right ${headerStickyTh}`}>{extraHeader}</th>
             )}
           </tr>
         </thead>

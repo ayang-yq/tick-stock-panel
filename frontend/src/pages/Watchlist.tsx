@@ -1616,9 +1616,10 @@ export function Watchlist() {
         </div>
       )}
 
-      {/* 可滚动列表区 — 占满剩余高度，内部独立滚动，表头 sticky 固定 */}
+      {/* 可滚动列表区 — 占满剩余高度，内部独立滚动，表头 sticky 固定。
+          表格视图时内层改为纵向flex, 让表格包装div(overflow-auto)吃满高度成为唯一滚动容器 */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="px-5 py-3">
+        <div className={`px-5 py-3 ${viewMode === 'table' && !groupCardsOpen ? 'h-full flex flex-col' : ''}`}>
           {/* 列表 */}
           {watchlistContentLoading ? (
             <div className="text-sm text-muted">加载中…</div>
@@ -1654,6 +1655,7 @@ export function Watchlist() {
               columns={visibleColumns}
               rows={sortedRows}
               headerSticky
+              stickyFirstColumn
               sort={sort}
               onSortToggle={handleSortToggle}
               extraSortableKeys={INTRADAY_SORTABLE_KEYS}
@@ -1893,7 +1895,7 @@ export function Watchlist() {
                 // 其余纯数据列 → 共享原语
                 return renderBuiltinDataCell(r, col)
               }}
-              className="rounded-card overflow-x-auto"
+              className="flex-1 min-h-0 rounded-card border border-border overflow-auto"
             />
           ) : !virtualizeCards ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
