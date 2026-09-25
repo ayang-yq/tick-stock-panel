@@ -53,8 +53,11 @@ legacy-cpu = [
 # vectorbt 还会引入绘图、交互组件等完整分析栈，仍保持为可选 extras。
 # Matrix 引擎只直接依赖上面的 numba/llvmlite 编译内核。
 # 启用:`uv sync --extra backtest`
+# 注意: vectorbt 1.x 的模板用了 scattermapbox, 与 plotly>=5.60(改名 scattermap)不兼容,
+# 必须锁定 plotly 5.x — 否则 import vectorbt 直接 ValueError (2026-09-25 实测)。
 backtest = [
     "vectorbt>=0.26",
+    "plotly>=5.24,<6",
 ]
 
 # 桌面客户端依赖: pywebview 桌面窗口。打包用 (PyInstaller), 生产/Docker 不需要。
