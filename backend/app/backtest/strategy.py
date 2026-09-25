@@ -2335,31 +2335,41 @@ class StrategyBacktestService:
             combined = combined | m
         return combined
 
+    # 多基准: 上证(主) + 沪深300 + 创业板指, 曲线归一化为起点=1000 便于与策略净值同轴对比
+    BENCHMARK_SET = {
+        "000001.SH": "上证指数",
+        "000300.SH": "沪深300",
+        "399006.SZ": "创业板指",
+    }
+
     def _build_benchmark_curve(self, start: date, end: date) -> list[dict]:
-        try:
-            df = self.engine.repo.get_index_daily(BENCHMARK_SYMBOL, start, end, columns=["date", "close"])
-        except Exception as e:
-            logger.warning("load benchmark %s failed: %s", BENCHMARK_SYMBOL, e)
-            return []
-
-        if df.is_empty() or "close" not in df.columns:
-            return []
-
-        df = df.filter(pl.col("close").is_not_null() & (pl.col("close") > 0)).sort("date")
-        if df.is_empty():
-            return []
-
-        return [
-            {
-                "date": str(row["date"])[:10],
-                "value": round(float(row["close"]), 4),
-                "close": round(float(row["close"]), 4),
-                "name": "上证指数",
-                "symbol": BENCHMARK_SYMBOL,
-            }
-            for row in df.iter_rows(named=True)
-            if row["close"] is not None
-        ]
+        curves: list[dict] = []
+        for symbol, name in self.BENCHMARK_SET.items():
+            try:
+                df = self.engine.repo.get_index_daily(symbol, start, end, columns=["date", "close"])
+            except Exception as e:
+                logger.warning("load benchmark %s failed: %s", symbol, e)
+                continue
+            if df.is_empty() or "close" not in df.columns:
+                continue
+            df = df.filter(pl.col("close").is_not_null() & (pl.col("close") > 0)).sort("date")
+            if df.is_empty():
+                continue
+            base = float(df["close"][0])
+            if base <= 0:
+                continue
+            for row in df.iter_rows(named=True):
+                c = row["close"]
+                if c is None:
+                    continue
+                curves.append({
+                    "date": str(row["date"])[:10],
+                    "value": round(float(c) / base * 1000, 4),
+                    "close": round(float(c) / base * 1000, 4),
+                    "name": name,
+                    "symbol": symbol,
+                })
+        return curves
 
     # ── 工具 ──
 

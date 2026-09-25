@@ -39,9 +39,28 @@ export function StrategyNavChart({ result }: Props) {
     }
     const dates = result.equity_curve.map(r => r.date.slice(0, 10))
     const navValues = result.equity_curve.map(r => r.value)
-    const benchmarkByDate = new Map((result.benchmark_curve ?? []).map(r => [r.date.slice(0, 10), r.close ?? r.value]))
-    const benchmarkValues = dates.map(d => benchmarkByDate.get(d) ?? null)
-    const hasBenchmark = benchmarkValues.some(v => v != null)
+    // 多基准: benchmark_curve 含多条指数(上证/沪深300/创业板指), 归一化到起点=1000, 按 name 分组
+    const BENCH_META: Record<string, { label: string; color: string }> = {
+      '000001.SH': { label: '同期上证指数', color: '#64748b' },
+      '000300.SH': { label: '同期沪深300', color: '#8b5cf6' },
+      '399006.SZ': { label: '同期创业板指', color: '#10b981' },
+    }
+    const benchBySymbol = new Map<string, Map<string, number>>()
+    for (const r of (result.benchmark_curve ?? [])) {
+      const sym = r.symbol ?? '000001.SH'
+      if (!benchBySymbol.has(sym)) benchBySymbol.set(sym, new Map())
+      benchBySymbol.get(sym)!.set(r.date.slice(0, 10), r.close ?? r.value)
+    }
+    const benchmarkSeries = Array.from(benchBySymbol.entries()).map(([sym, byDate]) => {
+      const meta = BENCH_META[sym] ?? { label: sym, color: '#64748b' }
+      return {
+        key: sym,
+        label: meta.label,
+        color: meta.color,
+        values: dates.map(d => byDate.get(d) ?? null) as (number | null)[],
+      }
+    })
+    const hasBenchmark = benchmarkSeries.some(s => s.values.some(v => v != null))
     const ddValues = result.drawdown_curve.map(r => r.value * 100)
     const positionValues = result.equity_curve.map(r => {
       if (r.exposure != null) return r.exposure * 100
@@ -52,7 +71,6 @@ export function StrategyNavChart({ result }: Props) {
     })
     const hasPosition = positionValues.some(v => v != null)
     const navColor = '#3b82f6'
-    const benchmarkColor = '#64748b'
     const drawdownColor = '#f04438'
     const positionColor = '#f59e0b'
 
@@ -205,17 +223,17 @@ export function StrategyNavChart({ result }: Props) {
             } as any,
           },
         },
-        ...(hasBenchmark && !hidden.has('同期上证指数') ? [{
-          name: '同期上证指数',
+        ...benchmarkSeries.filter(s => s.values.some(v => v != null) && !hidden.has(s.label)).map(s => ({
+          name: s.label,
           type: 'line',
           xAxisIndex: 0,
           yAxisIndex: 0,
-          data: benchmarkValues,
+          data: s.values,
           symbol: 'none',
           connectNulls: true,
-          itemStyle: { color: benchmarkColor },
-          lineStyle: { color: benchmarkColor, opacity: 0.55, width: 1, type: 'dashed' },
-        }] : []),
+          itemStyle: { color: s.color },
+          lineStyle: { color: s.color, opacity: s.key === '000001.SH' ? 0.55 : 0.7, width: 1, type: s.key === '000001.SH' ? 'dashed' : 'solid' },
+        })),
         {
           name: '回撤',
           type: 'line',
