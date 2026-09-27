@@ -2108,7 +2108,9 @@ class BacktestEngine:
                             market_value = _market_value()
                             equity = cash + market_value
                             capacity = equity * max_exposure_pct - market_value
-                            allocation = min(total_budget * float(weight), target_value, cash, capacity)
+                            # fork定制(杠铃配置策略): score_weight下每仓上限按权重比例放大
+                            per_cap = target_value if config.position_sizing != "score_weight" else target_value * max(1.0, weight * len(selected))
+                            allocation = min(total_budget * float(weight), per_cap, cash, capacity)
                             if allocation <= 0:
                                 _count("buy_exposure")
                                 continue
@@ -2658,7 +2660,10 @@ class BacktestEngine:
                 current_market_value = _market_value()
                 current_equity = cash + current_market_value
                 current_exposure_capacity = current_equity * max_exposure_pct - current_market_value
-                allocation = min(total_budget * float(weight), target_position_value, cash, current_exposure_capacity)
+                # fork定制(杠铃配置策略): score_weight模式下每仓上限按权重比例放大,
+                # 不再被 equity/max_positions 等权钳制 (上游对加权组合的语义缺陷)
+                per_cap = target_position_value if config.position_sizing != "score_weight" else target_position_value * max(1.0, weight * len(selected))
+                allocation = min(total_budget * float(weight), per_cap, cash, current_exposure_capacity)
                 if allocation <= 0:
                     _count("buy_exposure")
                     continue
