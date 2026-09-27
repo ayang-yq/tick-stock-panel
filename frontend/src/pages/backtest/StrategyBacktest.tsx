@@ -944,6 +944,13 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
   const [strategyGroup, setStrategyGroup] = useState<StrategyGroup>('all')
   const [symbols, setSymbols] = useState(saved?.symbols ?? '')
   const [assetType, setAssetType] = useState<'stock' | 'etf'>(saved?.assetType ?? 'stock')
+  // 基准指数单选: 影响图上"主基准"高亮与同期基准/超额收益统计
+  const [benchmarkSymbol, setBenchmarkSymbol] = useState<string>(() => {
+    try { return localStorage.getItem('tf-benchmark') || '000001.SH' } catch { return '000001.SH' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('tf-benchmark', benchmarkSymbol) } catch { /* ignore */ }
+  }, [benchmarkSymbol])
   const [start, setStart] = useState(saved?.start ?? THREE_MONTHS_AGO)
   const [end, setEnd] = useState(saved?.end ?? TODAY)
   // 成交口径: 建仓/清仓可独立配置。向后兼容老 matching (派生为 entry=exit=matching)。
@@ -1256,13 +1263,15 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
     return null
   }
 
+  // 基准收益: 只统计选中的基准指数
   const benchmarkReturn = useMemo(() => {
     const values = (result?.benchmark_curve ?? [])
+      .filter(r => r.symbol === benchmarkSymbol)
       .map(r => Number(r.close ?? r.value))
       .filter(v => Number.isFinite(v) && v > 0)
     if (values.length < 2) return null
     return values[values.length - 1] / values[0] - 1
-  }, [result?.benchmark_curve])
+  }, [result?.benchmark_curve, benchmarkSymbol])
 
   const strategyReturn = pick('total_return') as number | null
   const excessReturn = strategyReturn != null && benchmarkReturn != null
@@ -2236,8 +2245,30 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
             {/* 累计超额曲线 (复用 StrategyNavChart) */}
             {result.equity_curve.length > 1 && (
               <div className="rounded-card border border-border p-3">
-                <div className="mb-2 text-xs font-medium text-secondary">累计收益曲线(日均复利)</div>
-                <StrategyNavChart result={result} />
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-medium text-secondary">累计收益曲线(日均复利)</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-muted">基准</span>
+                    <div className="inline-flex h-6 rounded-btn border border-border overflow-hidden">
+                      {([
+                        { sym: '000001.SH', label: '上证' },
+                        { sym: '000300.SH', label: '沪深300' },
+                        { sym: '399006.SZ', label: '创业板' },
+                      ] as const).map(b => (
+                        <button
+                          key={b.sym}
+                          type="button"
+                          onClick={() => setBenchmarkSymbol(b.sym)}
+                          className={`h-full px-2 text-[11px] font-medium transition-colors cursor-pointer
+                            ${benchmarkSymbol === b.sym ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'}`}
+                        >
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <StrategyNavChart result={result} activeBenchmark={benchmarkSymbol} />
               </div>
             )}
 
@@ -2342,7 +2373,7 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
                   color={statValueColor(strategyReturn)} />
                 <Stat label={<MetricLabel label="年化" metric="annualReturn" />} value={pick('annual_return') != null ? fmtPct(pick('annual_return') as number) : '—'}
                   color={statValueColor(pick('annual_return') as number)} />
-                <Stat label={<MetricLabel label="同期上证" metric="benchmarkReturn" />} value={benchmarkReturn != null ? fmtPct(benchmarkReturn) : '—'}
+                <Stat label={<span title={benchmarkSymbol === '000300.SH' ? '同一回测区间内沪深300指数的累计收益率' : benchmarkSymbol === '399006.SZ' ? '同一回测区间内创业板指的累计收益率' : '同一回测区间内上证指数的累计收益率'}>{benchmarkSymbol === '000300.SH' ? '同期沪深300' : benchmarkSymbol === '399006.SZ' ? '同期创业板' : '同期上证'}</span>} value={benchmarkReturn != null ? fmtPct(benchmarkReturn) : '—'}
                   color={statValueColor(benchmarkReturn)} />
                 <Stat label={<MetricLabel label="超额收益" metric="excessReturn" />} value={excessReturn != null ? fmtPct(excessReturn) : '—'}
                   color={statValueColor(excessReturn)} />
@@ -2398,8 +2429,31 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
 
             {/* 净值曲线 */}
             {result.equity_curve.length > 0 && (
-              <div className="rounded-card border border-border overflow-hidden">
-                <StrategyNavChart result={result} />
+              <div className="rounded-card border border-border p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-medium text-secondary">净值曲线</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-muted">基准</span>
+                    <div className="inline-flex h-6 rounded-btn border border-border overflow-hidden">
+                      {([
+                        { sym: '000001.SH', label: '上证' },
+                        { sym: '000300.SH', label: '沪深300' },
+                        { sym: '399006.SZ', label: '创业板' },
+                      ] as const).map(b => (
+                        <button
+                          key={b.sym}
+                          type="button"
+                          onClick={() => setBenchmarkSymbol(b.sym)}
+                          className={`h-full px-2 text-[11px] font-medium transition-colors cursor-pointer
+                            ${benchmarkSymbol === b.sym ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'}`}
+                        >
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <StrategyNavChart result={result} activeBenchmark={benchmarkSymbol} />
               </div>
             )}
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from app.services.json_report_store import JsonReportStore
 
-MAX_REPORTS = 20
+MAX_REPORTS = 80
 
 _store = JsonReportStore("ai_reports.json", MAX_REPORTS, id_prefix="rpt")
 

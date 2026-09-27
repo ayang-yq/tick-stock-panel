@@ -6,9 +6,11 @@ import { useChartTheme } from '@/lib/theme'
 
 interface Props {
   result: StrategyBacktestResult
+  /** 当前激活的基准指数 symbol — 该基准实线加粗, 其余淡化 */
+  activeBenchmark?: string
 }
 
-export function StrategyNavChart({ result }: Props) {
+export function StrategyNavChart({ result, activeBenchmark = '000001.SH' }: Props) {
   const ct = useChartTheme()
   // 可点击隐藏的图例(series name 为 key)。策略净值/回撤保持常显。
   const [hidden, setHidden] = useState<Set<string>>(new Set())
@@ -231,8 +233,14 @@ export function StrategyNavChart({ result }: Props) {
           data: s.values,
           symbol: 'none',
           connectNulls: true,
-          itemStyle: { color: s.color },
-          lineStyle: { color: s.color, opacity: s.key === '000001.SH' ? 0.55 : 0.7, width: 1, type: s.key === '000001.SH' ? 'dashed' : 'solid' },
+          z: s.key === activeBenchmark ? 5 : 2,
+          itemStyle: { color: s.color, opacity: s.key === activeBenchmark ? 1 : 0.45 },
+          lineStyle: {
+            color: s.color,
+            opacity: s.key === activeBenchmark ? 0.95 : 0.4,
+            width: s.key === activeBenchmark ? 2 : 1,
+            type: s.key === activeBenchmark ? 'solid' : 'dashed',
+          },
         })),
         {
           name: '回撤',
