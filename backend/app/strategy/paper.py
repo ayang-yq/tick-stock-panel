@@ -414,14 +414,16 @@ def create_order(
                     f"已有待成交卖出 {pending_sell}, 请求数量 {qty}"
                 )
 
-        # 持仓标的数上限 (仅新开仓的买入; 加仓已有持仓不受限)
+        # 持仓标的数上限 (仅新开仓的买入; 加仓已有持仓不受限);
+        # 账户字段 max_position_symbols 可覆盖全局默认 (宽组合策略如微盘400需要)
         positions = load_positions(data_dir, account_id)
+        max_symbols = int(acc.get("max_position_symbols") or MAX_POSITION_SYMBOLS)
         if (
             side == "buy"
             and symbol not in positions
-            and len([p for p in positions.values() if p["qty"] > 0]) >= MAX_POSITION_SYMBOLS
+            and len([p for p in positions.values() if p["qty"] > 0]) >= max_symbols
         ):
-            return None, f"持仓标的数已达上限 {MAX_POSITION_SYMBOLS}, 不能再开新仓"
+            return None, f"持仓标的数已达上限 {max_symbols}, 不能再开新仓"
 
         order = {
             "id": _new_id("order"),
