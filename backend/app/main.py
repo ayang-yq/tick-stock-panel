@@ -24,6 +24,7 @@ from app.api import (
     ext_pages,
     factors,
     financials,
+    herding,
     indices,
     intraday,
     kline,
@@ -623,6 +624,7 @@ app.include_router(ext_pages.router)
 app.include_router(task_registry.router)
 app.include_router(financials.router)
 app.include_router(valuation.router)
+app.include_router(herding.router)
 app.include_router(calendar.router)
 app.include_router(stock_analysis.router)
 app.include_router(market_recap.router)
