@@ -593,15 +593,13 @@ export function Regime() {
   }, [states.data, ct])
   const pieRef = useEChart(pieOption, [pieOption, view])
 
-  // 抱团度折线: 日频(细) + MA20(粗) + 全史均值虚线; 默认 dataZoom 显示最近2年
+  // 抱团度折线: 日频 + 全史均值虚线; 默认 dataZoom 显示最近2年
   const herdingOption = useMemo<echarts.EChartsOption | null>(() => {
     const hRows = herding.data?.rows ?? []
     if (hRows.length === 0) return null
     const dates = hRows.map(r => r.date)
     const pcts = hRows.map(r => r.pct)
-    const ma20 = hRows.map(r => r.ma20)
     const mean = herding.data?.latest?.mean ?? null
-    const accent = '#c0392b'
     return {
       backgroundColor: 'transparent',
       tooltip: {
@@ -617,16 +615,11 @@ export function Regime() {
           return [
             `<b>${r.date}</b>`,
             `占比 ${r.pct.toFixed(1)}%`,
-            `MA20 ${r.ma20 != null ? r.ma20.toFixed(1) + '%' : '—'}`,
             `全市场 ${yi}万亿 · ${r.n}只`,
           ].join('<br/>')
         },
       },
-      legend: {
-        data: ['日频', 'MA20'],
-        textStyle: { color: ct.text, fontSize: 10 }, top: 0,
-      },
-      grid: { left: 40, right: 16, top: 30, bottom: 40 },
+      grid: { left: 40, right: 16, top: 16, bottom: 40 },
       xAxis: {
         type: 'category', data: dates, boundaryGap: false,
         axisLabel: { color: ct.text, fontSize: 10, formatter: (v: string) => v.slice(0, 4) },
@@ -644,11 +637,7 @@ export function Regime() {
       series: [
         {
           name: '日频', type: 'line', data: pcts, showSymbol: false,
-          lineStyle: { width: 0.8, color: '#7aa6c2' }, itemStyle: { color: '#7aa6c2' },
-        },
-        {
-          name: 'MA20', type: 'line', data: ma20, showSymbol: false,
-          lineStyle: { width: 1.8, color: accent }, itemStyle: { color: accent },
+          lineStyle: { width: 0.9, color: '#7aa6c2' }, itemStyle: { color: '#7aa6c2' },
           markLine: mean != null ? {
             symbol: 'none', silent: true,
             lineStyle: { type: 'dashed', color: '#888', width: 1 },
