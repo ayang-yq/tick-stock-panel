@@ -187,6 +187,15 @@ export function Regime() {
   })
   const [recomputing, setRecomputing] = useState(false)
 
+  // 抱团度（成交额集中度）: toolbox 引擎日更落盘, 后端 /api/herding/history 读取。
+  // 全史 4000+ 点直接画（ECharts canvas 无压力），独立于上方 range 选择的语义
+  // （集中度分位需要全史基准，截断窗口会失真）。
+  const herding = useQuery({
+    queryKey: ['herding-history'] as const,
+    queryFn: () => api.herdingHistory(),
+    staleTime: 5 * 60 * 1000,
+  })
+
   const rows: RegimeRow[] = history.data?.rows ?? []
   const latest = rows.length > 0 ? rows[rows.length - 1] : null
   const hasPhaseData = rows.length > 0 && rows.some(r => r.phase != null)
@@ -583,6 +592,74 @@ export function Regime() {
     }
   }, [states.data, ct])
   const pieRef = useEChart(pieOption, [pieOption, view])
+
+  // 抱团度折线: 日频(细) + MA20(粗) + 全史均值虚线; 默认 dataZoom 显示最近2年
+  const herdingOption = useMemo<echarts.EChartsOption | null>(() => {
+    const hRows = herding.data?.rows ?? []
+    if (hRows.length === 0) return null
+    const dates = hRows.map(r => r.date)
+    const pcts = hRows.map(r => r.pct)
+    const ma20 = hRows.map(r => r.ma20)
+    const mean = herding.data?.latest?.mean ?? null
+    const accent = '#c0392b'
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis', backgroundColor: ct.tooltipBg, borderColor: ct.tooltipBorder,
+        textStyle: { color: ct.tooltipText },
+        axisPointer: { type: 'line', snap: true, lineStyle: { color: ct.grid } },
+        formatter: (params: any) => {
+          const p0 = Array.isArray(params) ? params[0] : params
+          const i = dates.indexOf(p0.axisValue)
+          const r = hRows[i]
+          if (!r) return ''
+          const yi = (r.total / 1e12).toFixed(2)
+          return [
+            `<b>${r.date}</b>`,
+            `占比 ${r.pct.toFixed(1)}%`,
+            `MA20 ${r.ma20 != null ? r.ma20.toFixed(1) + '%' : '—'}`,
+            `全市场 ${yi}万亿 · ${r.n}只`,
+          ].join('<br/>')
+        },
+      },
+      legend: {
+        data: ['日频', 'MA20'],
+        textStyle: { color: ct.text, fontSize: 10 }, top: 0,
+      },
+      grid: { left: 40, right: 16, top: 30, bottom: 40 },
+      xAxis: {
+        type: 'category', data: dates, boundaryGap: false,
+        axisLabel: { color: ct.text, fontSize: 10, formatter: (v: string) => v.slice(0, 4) },
+        axisLine: { lineStyle: { color: ct.grid } },
+      },
+      yAxis: {
+        type: 'value', name: '占比%', scale: true,
+        axisLabel: { color: ct.text, fontSize: 10 },
+        splitLine: { show: false }, nameTextStyle: { color: ct.text },
+      },
+      dataZoom: [
+        { type: 'inside', start: Math.max(0, 100 - (500 / dates.length) * 100) },
+        { type: 'slider', height: 14, bottom: 8, borderColor: ct.border, textStyle: { color: ct.text, fontSize: 9 } },
+      ],
+      series: [
+        {
+          name: '日频', type: 'line', data: pcts, showSymbol: false,
+          lineStyle: { width: 0.8, color: '#7aa6c2' }, itemStyle: { color: '#7aa6c2' },
+        },
+        {
+          name: 'MA20', type: 'line', data: ma20, showSymbol: false,
+          lineStyle: { width: 1.8, color: accent }, itemStyle: { color: accent },
+          markLine: mean != null ? {
+            symbol: 'none', silent: true,
+            lineStyle: { type: 'dashed', color: '#888', width: 1 },
+            label: { formatter: `均值${mean}%`, color: ct.text, fontSize: 9, position: 'insideEndTop' },
+            data: [{ yAxis: mean }],
+          } : undefined,
+        },
+      ],
+    }
+  }, [herding.data, ct])
+  const herdingRef = useEChart(herdingOption, [herdingOption, view])
 
   // 日历热力图数据: 按月分组(纯 CSS 渲染, 不依赖 echarts calendar 的跨年怪异行为)。
   // 结构: [{ year, month, label, weeks: [[cell|gap]×7]×N }]
@@ -1127,6 +1204,15 @@ export function Regime() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── 抱团度（成交额集中度）── */}
+      {herding.data?.available && herding.data.latest && (
+        <div className={cn(cardCls, 'p-3')}>
+          <SectionTitle icon={Layers} title="抱团度 · 前5%个股成交额占比"
+            hint={`当前 ${herding.data.latest.pct.toFixed(1)}%（前日 ${herding.data.latest.prev_pct.toFixed(1)}%）· 全史分位 ${herding.data.latest.pctile}% · 均值 ${herding.data.latest.mean}%`} />
+          <div ref={herdingRef} className="mt-2 h-[260px]" />
         </div>
       )}
 

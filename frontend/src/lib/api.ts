@@ -600,6 +600,30 @@ export interface RegimeCoverage {
   latest_date: string | null
 }
 
+// ── 抱团度（成交额集中度）──
+export interface HerdingRow {
+  date: string
+  pct: number
+  ma20: number | null
+  n: number
+  total: number
+}
+
+export interface HerdingLatest {
+  date: string
+  pct: number
+  prev_pct: number
+  pctile: number
+  mean: number
+  n: number
+}
+
+export interface HerdingHistory {
+  available: boolean
+  rows: HerdingRow[]
+  latest: HerdingLatest | null
+}
+
 // ── 市场阶段(情绪周期) 与 主线 ──
 export type MarketPhase = 'ice' | 'ignite' | 'rally' | 'climax' | 'ebb' | 'repair'
 
@@ -2862,6 +2886,7 @@ export const api = {
   regimeLatest: () => request<{ row: RegimeRow | null }>('/api/regime/latest'),
   regimeStates: (days = 60) => request<RegimeStates>(`/api/regime/states?days=${days}`),
   regimeCoverage: () => request<RegimeCoverage>('/api/regime/coverage'),
+  herdingHistory: (days = 0) => request<HerdingHistory>(`/api/herding/history${days ? `?days=${days}` : ''}`),
   regimeRecompute: (start?: string, end?: string) => {
     const params = new URLSearchParams()
     if (start) params.set('start', start)

@@ -23,6 +23,7 @@ from app.api import (
     events,
     factors,
     financials,
+    herding,
     indices,
     intraday,
     kline,
@@ -522,6 +523,7 @@ app.include_router(data.router)
 app.include_router(ext_data.router)
 app.include_router(financials.router)
 app.include_router(valuation.router)
+app.include_router(herding.router)
 app.include_router(calendar.router)
 app.include_router(stock_analysis.router)
 app.include_router(market_recap.router)
