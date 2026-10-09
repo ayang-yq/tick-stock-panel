@@ -481,9 +481,11 @@ def watchlist_enriched(
     # (避免无 ETF 用户在缓存冷启动时触发 ETF 全量懒加载)
     etf_set = repo.get_etf_symbol_set()
     index_set = repo.get_index_symbol_set()
+    hk_set = repo.get_hk_symbol_set()
     etf_symbols = [s for s in symbols if s in etf_set]
     index_symbols = [s for s in symbols if s not in etf_set and s in index_set]
-    stock_symbols = [s for s in symbols if s not in etf_set and s not in index_set]
+    hk_symbols = [s for s in symbols if s not in etf_set and s not in index_set and s in hk_set]
+    stock_symbols = [s for s in symbols if s not in etf_set and s not in index_set and s not in hk_set]
 
     df_e, cache_date = repo.get_enriched_latest()
 
@@ -523,8 +525,19 @@ def watchlist_enriched(
             df_idx = idx_watchlist_df
         df = df_idx if df.is_empty() else pl.concat([df, df_idx], how="diagonal_relaxed")
 
-    # as_of 取三类缓存中较旧者
-    dates = [d for d in (cache_date if stock_symbols else None, etf_date, index_date) if d is not None]
+    # 港股行合并 (镜像 ETF 分支); HK 为外部同步数据, 无涨跌停/连板等 A 股列, null 即可
+    hk_date = None
+    if hk_symbols:
+        df_hk_all, hk_date = repo.get_enriched_latest_asset("hk")
+        hk_watchlist_df = pl.DataFrame({"symbol": hk_symbols})
+        if not df_hk_all.is_empty():
+            df_hk = hk_watchlist_df.join(df_hk_all, on="symbol", how="left")
+        else:
+            df_hk = hk_watchlist_df
+        df = df_hk if df.is_empty() else pl.concat([df, df_hk], how="diagonal_relaxed")
+
+    # as_of 取各类缓存中较旧者
+    dates = [d for d in (cache_date if stock_symbols else None, etf_date, index_date, hk_date) if d is not None]
     as_of = min(dates) if dates else None
     if df.is_empty():
         return {"rows": [], "as_of": str(as_of) if as_of else None, "elapsed_ms": 0}
@@ -539,7 +552,7 @@ def watchlist_enriched(
     )
 
     # 标注资产类型: 前端据此渲染徽标/豁免板块筛选/分时列降级
-    asset_map = {**{s: "etf" for s in etf_symbols}, **{s: "index" for s in index_symbols}}
+    asset_map = {**{s: "etf" for s in etf_symbols}, **{s: "index" for s in index_symbols}, **{s: "hk" for s in hk_symbols}}
     df = df.with_columns(
         pl.col("symbol").replace_strict(asset_map, default="stock", return_dtype=pl.Utf8).alias("asset_type")
     )

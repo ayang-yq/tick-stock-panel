@@ -119,6 +119,8 @@ class DataStore:
             "kline_etf_daily",
             "kline_etf_enriched",
             "kline_etf_minute",
+            "kline_hk_daily",
+            "kline_hk_enriched",
             "kline_minute",
             "adj_factor",
             "adj_factor_etf",
@@ -126,6 +128,7 @@ class DataStore:
             "instruments",
             "instruments_index",
             "instruments_etf",
+            "instruments_hk",
             "instruments_ext",
             "kline_ext",
             "pools",
@@ -221,6 +224,10 @@ class DataStore:
                 SELECT * FROM read_parquet('{d}/kline_etf_enriched/**/*.parquet', union_by_name=true)""",
             f"""CREATE OR REPLACE VIEW kline_etf_minute AS
                 SELECT * FROM read_parquet('{d}/kline_etf_minute/**/*.parquet', union_by_name=true)""",
+            f"""CREATE OR REPLACE VIEW kline_hk_daily AS
+                SELECT * FROM read_parquet('{d}/kline_hk_daily/**/*.parquet', union_by_name=true)""",
+            f"""CREATE OR REPLACE VIEW kline_hk_enriched AS
+                SELECT * FROM read_parquet('{d}/kline_hk_enriched/**/*.parquet', union_by_name=true)""",
             f"""CREATE OR REPLACE VIEW kline_minute AS
                 SELECT * FROM read_parquet('{d}/kline_minute/**/*.parquet', union_by_name=true)""",
             f"""CREATE OR REPLACE VIEW adj_factor AS
@@ -233,6 +240,8 @@ class DataStore:
                 SELECT * FROM read_parquet('{d}/instruments_index/**/*.parquet', union_by_name=true)""",
             f"""CREATE OR REPLACE VIEW instruments_etf AS
                 SELECT * FROM read_parquet('{d}/instruments_etf/**/*.parquet', union_by_name=true)""",
+            f"""CREATE OR REPLACE VIEW instruments_hk AS
+                SELECT * FROM read_parquet('{d}/instruments_hk/**/*.parquet', union_by_name=true)""",
             f"""CREATE OR REPLACE VIEW instruments_ext AS
                 SELECT * FROM read_parquet('{d}/instruments_ext/**/*.parquet', union_by_name=true)""",
             f"""CREATE OR REPLACE VIEW kline_ext AS
@@ -377,9 +386,14 @@ class KlineRepository:
         self._etf_live_agg_cache: pl.DataFrame | None = None
         self._etf_live_agg_cache_date: date | None = None
         self._etf_instruments_cache: pl.DataFrame | None = None
+        # HK(港股) 第四类资产: 独立 enriched/instruments 缓存 (financial_db/hk_stocks 外部同步)
+        self._hk_enriched_cache: pl.DataFrame | None = None
+        self._hk_enriched_cache_date: date | None = None
+        self._hk_instruments_cache: pl.DataFrame | None = None
         # symbol 集合 memo (随对应 instruments 缓存失效): 供每请求资产分流用
         self._index_symbol_set_cache: set[str] | None = None
         self._etf_symbol_set_cache: set[str] | None = None
+        self._hk_symbol_set_cache: set[str] | None = None
         self._index_enriched_cache: pl.DataFrame | None = None
         self._index_enriched_cache_date: date | None = None
 
@@ -399,6 +413,7 @@ class KlineRepository:
         self._enriched_glob = str(store.data_dir / "kline_daily_enriched" / "**" / "*.parquet")
         self._index_enriched_glob = str(store.data_dir / "kline_index_enriched" / "**" / "*.parquet")
         self._etf_enriched_glob = str(store.data_dir / "kline_etf_enriched" / "**" / "*.parquet")
+        self._hk_enriched_glob = str(store.data_dir / "kline_hk_enriched" / "**" / "*.parquet")
         self._minute_glob = str(store.data_dir / "kline_minute" / "**" / "*.parquet")
         self._etf_minute_glob = str(store.data_dir / "kline_etf_minute" / "**" / "*.parquet")
         self._inst_glob = str(store.data_dir / "instruments" / "**" / "*.parquet")
@@ -460,6 +475,10 @@ class KlineRepository:
         # 指数 enriched 同样只失效不重建 (懒加载)
         self._index_enriched_cache = None
         self._index_enriched_cache_date = None
+        # HK enriched 同样只失效不重建 (懒加载, 外部脚本写入后自动生效)
+        self._hk_enriched_cache = None
+        self._hk_enriched_cache_date = None
+        self._hk_instruments_cache = None
 
         if background:
             logger.info("cache refresh: enriched 推后台线程预热")
@@ -551,6 +570,10 @@ class KlineRepository:
         self._etf_instruments_cache = None
         self._index_symbol_set_cache = None
         self._etf_symbol_set_cache = None
+        self._hk_enriched_cache = None
+        self._hk_enriched_cache_date = None
+        self._hk_instruments_cache = None
+        self._hk_symbol_set_cache = None
         self._name_map_cache = None
         self._index_enriched_cache = None
         self._index_enriched_cache_date = None
@@ -1073,6 +1096,81 @@ class KlineRepository:
         except Exception as e:  # noqa: BLE001
             logger.debug("ETF enriched 缓存刷新跳过: %s", e)
 
+    def _refresh_hk_enriched(self) -> None:
+        """从 HK enriched parquet 加载最新日到内存缓存 (镜像 _refresh_etf_enriched)。
+
+        HK 分区由外部脚本 (tsp_hk_sync.py) 从 financial_db/hk_stocks 写入,
+        窄表含 raw_close/raw_high/raw_low (qfq 口径, 因子=1 即 raw==adj)。
+        """
+        try:
+            enriched_dir = self.store.data_dir / "kline_hk_enriched"
+            dates = sorted(
+                p.name[5:] for p in enriched_dir.glob("date=*")
+                if p.is_dir() and p.name.startswith("date=")
+            ) if enriched_dir.exists() else []
+            if not dates:
+                self._hk_enriched_cache = None
+                self._hk_enriched_cache_date = None
+                return
+            latest = date.fromisoformat(dates[-1])
+            target_parquet = enriched_dir / f"date={dates[-1]}" / "part.parquet"
+            df_latest = pl.read_parquet(target_parquet)
+            if df_latest.is_empty():
+                return
+
+            from datetime import timedelta
+            from app.indicators.pipeline import compute_indicators, compute_signals
+            start_full = latest - timedelta(days=300)
+            read_cols = [c for c in ["symbol", "date", "open", "high", "low", "close",
+                                     "volume", "amount", "raw_close", "raw_high", "raw_low"]
+                         if c in df_latest.columns]
+            df_hist = guarded_collect(
+                scan_enriched_parquet(self._hk_enriched_glob,
+                                cast_options=pl.ScanCastOptions(integer_cast="allow-float"))
+                .filter(pl.col("date") >= start_full)
+                .select(read_cols)
+                .sort(["symbol", "date"]),
+                priority="background",
+            )
+            if df_hist.is_empty():
+                self._hk_enriched_cache = df_latest.sort(["symbol"])
+            else:
+                df_full = compute_signals(compute_indicators(df_hist))
+                self._hk_enriched_cache = df_full.filter(pl.col("date") == latest).sort(["symbol"])
+            self._hk_enriched_cache_date = latest
+        except Exception as e:  # noqa: BLE001
+            logger.debug("HK enriched 缓存刷新跳过: %s", e)
+
+    def _refresh_hk_instruments(self) -> None:
+        """加载 HK instruments 到内存 (financial_db/hk_stocks 清单, 外部脚本维护)。"""
+        try:
+            glob = str(self.store.data_dir / "instruments_hk" / "**" / "*.parquet")
+            df = guarded_collect(pl.scan_parquet(glob), priority="background")
+            if not df.is_empty():
+                self._hk_instruments_cache = df
+                self._hk_symbol_set_cache = None
+                self._name_map_cache = None
+                logger.info("HK instruments 缓存已加载: %d 只", len(df))
+        except Exception as e:  # noqa: BLE001
+            logger.debug("hk instruments 缓存刷新跳过: %s", e)
+
+    def get_hk_instruments(self) -> pl.DataFrame:
+        """返回缓存的港股 instruments DataFrame。"""
+        if self._hk_instruments_cache is None:
+            self._refresh_hk_instruments()
+        if self._hk_instruments_cache is None:
+            return pl.DataFrame()
+        return self._hk_instruments_cache
+
+    def get_hk_symbol_set(self) -> set[str]:
+        """返回已缓存港股 symbol 集合 (memo, 随 instruments 缓存失效)。"""
+        if self._hk_symbol_set_cache is None:
+            df = self.get_hk_instruments()
+            if df.is_empty() or "symbol" not in df.columns:
+                return set()
+            self._hk_symbol_set_cache = set(df["symbol"].cast(pl.Utf8).to_list())
+        return self._hk_symbol_set_cache
+
     def _refresh_index_enriched(self) -> None:
         """从指数 enriched parquet 加载最新日到内存缓存 (300天重算通用指标)。
 
@@ -1199,6 +1297,12 @@ class KlineRepository:
             if self._index_enriched_cache is None:
                 return pl.DataFrame(), self._index_enriched_cache_date
             return self._index_enriched_cache, self._index_enriched_cache_date
+        if asset_type == "hk":
+            if self._hk_enriched_cache is None and refresh:
+                self._refresh_hk_enriched()
+            if self._hk_enriched_cache is None:
+                return pl.DataFrame(), self._hk_enriched_cache_date
+            return self._hk_enriched_cache, self._hk_enriched_cache_date
         return pl.DataFrame(), None
 
     def get_enriched_history(self, target_date: date, lookback_days: int) -> pl.DataFrame | None:
@@ -1397,15 +1501,17 @@ class KlineRepository:
         return self._etf_symbol_set_cache
 
     def resolve_asset_type(self, symbol: str) -> str:
-        """按 symbol 判定资产类型: etf / index / stock(默认)。
+        """按 symbol 判定资产类型: etf / index / hk / stock(默认)。
 
         供 API 层对单标的查询做资产分流 (get_daily_asset 等)。
-        ETF/指数集合为 memo, 每请求查询成本可忽略。
+        ETF/指数/HK集合为 memo, 每请求查询成本可忽略。
         """
         if symbol in self.get_etf_symbol_set():
             return "etf"
         if symbol in self.get_index_symbol_set():
             return "index"
+        if symbol in self.get_hk_symbol_set():
+            return "hk"
         return "stock"
 
     def get_name_map(self, symbols: list[str] | None = None) -> dict[str, str]:
@@ -1425,7 +1531,7 @@ class KlineRepository:
         # 若把过滤后的结果写入缓存, 后续不同 symbols 的查询会命中残缺缓存,
         # 导致新加入自选的标的查不到名称。
         name_map: dict[str, str] = {}
-        for df in (self.get_instruments(), self.get_etf_instruments(), self.get_instruments_asset("index")):
+        for df in (self.get_instruments(), self.get_etf_instruments(), self.get_instruments_asset("index"), self.get_hk_instruments()):
             if df.is_empty() or "symbol" not in df.columns or "name" not in df.columns:
                 continue
             for symbol, name in df.select(["symbol", "name"]).iter_rows():
@@ -1603,6 +1709,8 @@ class KlineRepository:
             return self.get_index_daily(symbol, start, end, columns)
         if asset_type == "etf":
             return self.get_etf_daily(symbol, start, end, columns)
+        if asset_type == "hk":
+            return self.get_hk_daily(symbol, start, end, columns)
         return pl.DataFrame()
 
     def _minute_glob_for(self, asset_type: str) -> str:
@@ -1861,6 +1969,48 @@ class KlineRepository:
         except Exception as e:  # noqa: BLE001
             logger.debug("ETF 日K查询跳过: %s", e)
             return pl.DataFrame()
+
+    def _scan_hk_daily_symbol(self, symbol: str, start: date, end: date, columns: list[str] | None) -> pl.DataFrame:
+        try:
+            lf = scan_enriched_parquet(self._hk_enriched_glob,
+                                 cast_options=pl.ScanCastOptions(integer_cast="allow-float")).filter(
+                (pl.col("symbol") == symbol)
+                & (pl.col("date") >= start)
+                & (pl.col("date") <= end)
+            ).sort("date")
+            if columns:
+                schema_names = lf.collect_schema().names()
+                existing = [c for c in columns if c in schema_names]
+                lf = lf.select(existing)
+            return guarded_collect(lf)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("HK 日K查询跳过: %s", e)
+            return pl.DataFrame()
+
+    def get_hk_daily(
+        self,
+        symbol: str,
+        start: date,
+        end: date,
+        columns: list[str] | None = None,
+    ) -> pl.DataFrame:
+        """港股日K查询 — 读独立 HK enriched 窄表 + 300天窗口即时算指标 (镜像 ETF)。"""
+        from datetime import timedelta
+
+        if columns:
+            df = self._scan_hk_daily_symbol(symbol, start, end, columns)
+            if not df.is_empty() and all(c in df.columns for c in columns):
+                return df
+
+        warmup_start = start - timedelta(days=150)
+        df = self._scan_hk_daily_symbol(symbol, warmup_start, end, None)
+        if not df.is_empty():
+            df = self._compute_index_enriched_range(df)
+            df = df.filter((pl.col("date") >= start) & (pl.col("date") <= end))
+        if columns and not df.is_empty():
+            existing = [c for c in columns if c in df.columns]
+            df = df.select(existing)
+        return df
 
     def _merge_cached_and_scan(
         self,
