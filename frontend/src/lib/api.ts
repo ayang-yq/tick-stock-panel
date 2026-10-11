@@ -434,6 +434,8 @@ export interface ScreenerRunAllSummary {
   error?: string | null
   /** 本次执行起点 (Unix ms, 后端时钟), 用于判断缓存结果是否属于本轮 */
   started_at?: number | null
+  /** 已跳过的失效策略 ID (策略池残留, 前端应从池中移除) */
+  skipped_unknown?: string[]
 }
 
 export interface ScreenerCachedResult {
@@ -803,7 +805,7 @@ export interface StrategyDetail {
   name: string
   description: string
   tags: string[]
-  source: 'builtin' | 'custom' | 'ai' | 'composite'
+  source: 'custom' | 'ai' | 'composite'
   research_only?: boolean
   execution_backend: 'polars_expr' | 'matrix_native' | 'python_history_legacy' | 'composite' | 'minute_filter'
   asset_types: string[]
@@ -816,6 +818,8 @@ export interface StrategyDetail {
   scoring_directions: Record<string, ScoringDirection>
   entry_signals: string[]
   exit_signals: string[]
+  // 叠加条件 (每策略 overlay 硬过滤); 无覆盖时空数组
+  overlay_filter?: CustomSignalCondition[]
   minute_exit_trigger_supported_signals: string[]
   stop_loss: number | null
   take_profit: number | null
@@ -885,6 +889,10 @@ export interface CustomSignal {
   kind: 'entry' | 'exit' | 'both'
   conditions: CustomSignalCondition[]
   enabled: boolean
+  timeframe?: 'daily' | 'intraday'
+  min_bars?: number
+  /** 显式输出列名 (缺省 csg_{id}); 迁移自内置的定义沿用 signal_* 原列名, 编辑保存须原样回传 */
+  column?: string
 }
 
 export interface CustomSignalFieldGroup {
@@ -1085,7 +1093,8 @@ export interface PaperAccountSummary {
   created_at?: string
 }
 
-/** 多账户横向对比行 (GET /api/paper/compare): 概览 + 回合统计 + 定版净值 */
+/** 多账户横向对比行 (GET /api/paper/compare): 概览 + 回合统计 + 定版净值
+ *  holdings_count 起的对比字段为后端加法扩展, 旧响应可能缺失 → 可选 */
 export interface PaperCompareRow {
   account: string
   name: string
@@ -1104,6 +1113,26 @@ export interface PaperCompareRow {
   realized_pnl: number
   max_drawdown: number | null
   nav: Array<{ date: string; nav: number }>
+  /** 对比展示字段 (后端增量, 旧响应可缺) */
+  holdings_count?: number
+  created_at?: string | null
+  last_nav_date?: string | null
+  /** 最近两个定版净值的涨跌 (百分数值, 1.5 = +1.5%) */
+  day_change_pct?: number | null
+  auto_rules?: Array<{ name: string; match_kind: string; match_id: string; side: 'buy' | 'sell'; enabled: boolean }>
+  auto_enabled?: number
+}
+
+/** 对比批量创建的单个来源 (POST /api/paper/arena/batch_create) */
+export interface PaperArenaSource {
+  name?: string
+  match_kind: 'strategy' | 'rule'
+  match_id: string
+  side?: 'buy' | 'sell'
+  size_mode?: 'fixed_amount' | 'pct_equity'
+  size_value?: number
+  order_type?: 'market' | 'next_open' | 'close'
+  cooldown_days?: number
 }
 
 export interface PaperHolding {
@@ -2823,7 +2852,13 @@ export const api = {
     request<{ removed: number }>('/api/watchlist', { method: 'DELETE' }),
   watchlistQuotes: () => request<{ quotes: Quote[] }>('/api/watchlist/quotes'),
   watchlistEnriched: (extColumns?: string) =>
-    request<{ rows: any[]; as_of: string | null; elapsed_ms: number }>(
+    request<{
+      rows: any[]
+      as_of: string | null
+      elapsed_ms: number
+      /** 按资产类型的行情日期 (ISO); 缺失 (旧后端) 时前端按不新鲜处理 */
+      dates?: { stock: string | null; etf: string | null; index: string | null }
+    }>(
       extColumns
         ? `/api/watchlist/enriched?ext_columns=${encodeURIComponent(extColumns)}`
         : '/api/watchlist/enriched',
@@ -2831,10 +2866,14 @@ export const api = {
 
   // timeframe='all' 时不传参数 → 后端不过滤周期, 返回日线+分钟合并列表
   screenerStrategies: async (assetType?: 'stock' | 'etf' | 'index', timeframe: '1d' | '1m' | 'all' = '1d') => {
-    const data = await request<{ strategies: StrategyDetail[]; load_errors?: StrategyLoadError[] }>(
+    const data = await request<{
+      strategies: StrategyDetail[]
+      load_errors?: StrategyLoadError[]
+      legacy_migration?: { seeded_signals?: number; archived_files?: string[] }
+    }>(
       `/api/strategies?${assetType ? `asset_type=${assetType}&` : ''}${timeframe !== 'all' ? `timeframe=${timeframe}` : ''}`,
     )
-    return { presets: data.strategies, load_errors: data.load_errors }
+    return { presets: data.strategies, load_errors: data.load_errors, legacy_migration: data.legacy_migration }
   },
   screenerRunPreset: (strategy_id: string, pool?: string[], asOf?: string, extColumns?: string, assetType: 'stock' | 'etf' = 'stock', timeframe: '1d' | '1m' = '1d') =>
     request<ScreenerResult>('/api/screener/run_preset', {
@@ -3176,6 +3215,10 @@ export const api = {
 
   pipelineRun: () => request<{ job_id: string; reused: boolean }>(
     '/api/pipeline/run', { method: 'POST' },
+  ),
+  /** 独立同步除权因子 (全历史 + 受影响个股 enriched 局部重算), 与管道共用任务槽 */
+  pipelineAdjFactorRun: () => request<{ job_id: string; reused: boolean }>(
+    '/api/pipeline/adj-factor/run', { method: 'POST' },
   ),
   pipelineJob: (id: string) => request<PipelineJob>(`/api/pipeline/jobs/${id}`),
   /** 手动停止一个 running/pending 的同步任务 (协作式: 当前分块完成后线程自行退出) */
@@ -3882,6 +3925,13 @@ export const api = {
   paperAutoRuleDelete: (id: string, account?: string) =>
     request<{ ok: boolean }>(accUrl(`/api/paper/auto_rules/${encodeURIComponent(id)}`, account), { method: 'DELETE' }),
 
+  /** 对比批量创建: 同本金/同费率一次开 N 个账户, 各绑一条自动跟单规则 */
+  paperArenaCreate: (body: { initial_cash: number; sources: PaperArenaSource[]; name_prefix?: string; commission_pct?: number; stamp_tax_pct?: number; slippage_bps?: number }) =>
+    request<{ created: Array<{ account: string; name: string; rule_id: string }> }>('/api/paper/arena/batch_create', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   /** 模拟触发 ladder 封单监控 (Dev 调试, 不落盘不推送) */
   monitorRuleTestLadder: () =>
     request<{
@@ -4060,13 +4110,15 @@ export interface PipelineJob {
   finished_at: string | null
   duration_s: number | null
   result: {
-    universe_size: number
-    daily_days: number
-    adj_factor_symbols: number
-    enriched_days: number
+    universe_size?: number
+    daily_days?: number
+    adj_factor_symbols?: number
+    /** 独立除权因子同步: 本轮写入/合并的因子行数 */
+    adj_written?: number
+    enriched_days?: number
     index_count?: number
     index_daily_rows?: number
-    minute_rows: number
+    minute_rows?: number
     skipped_stages?: string[]
   } | null
   error: string | null
